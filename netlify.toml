@@ -1,0 +1,5 @@
+[build]
+  functions = "functions"  # Папка, где находятся функции
+
+[context.production.environment]
+  NODE_ENV = "production"

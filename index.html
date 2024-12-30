@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CraftShop Orders</title>
+</head>
+<body>
+  <h1>Добро пожаловать на страницу заказов!</h1>
+  
+  <table id="orders-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Заказчик</th>
+        <th>Товар</th>
+        <th>Цена</th>
+        <th>Телеграм</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Данные будут динамически добавляться сюда -->
+    </tbody>
+  </table>
+
+  <button id="download-button">Скачать все заказы</button>
+
+  <script>
+    async function fetchOrders() {
+      const response = await fetch('/.netlify/functions/fetchOrders');  // Запрос к серверной функции
+      const data = await response.json();
+      
+      const ordersTable = document.querySelector('#orders-table tbody');
+      data.result.forEach(order => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${order.channel_post.text.match(/ID заказа: ([\w-]+)/)[1]}</td>
+          <td>${order.channel_post.text.match(/Заказчик: ([\w\s,]+)/)[1]}</td>
+          <td>${order.channel_post.text.match(/Товар: ([\w\s\(\)]+)/)[1]}</td>
+          <td>${order.channel_post.text.match(/Цена: (\w+)/) ? order.channel_post.text.match(/Цена: (\w+)/)[1] : 'N/A'}</td>
+          <td>${order.channel_post.text.match(/Телеграм: ([\w]+)/)[1]}</td>
+        `;
+        ordersTable.appendChild(row);
+      });
+    }
+
+    document.getElementById('download-button').addEventListener('click', () => {
+      const orders = document.querySelectorAll('#orders-table tbody tr');
+      const orderData = [];
+      
+      orders.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const order = {
+          id: cells[0].textContent,
+          customer: cells[1].textContent,
+          product: cells[2].textContent,
+          price: cells[3].textContent,
+          telegram: cells[4].textContent
+        };
+        orderData.push(order);
+      });
+      
+      const blob = new Blob([JSON.stringify(orderData, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'orders.json';
+      link.click();
+    });
+
+    fetchOrders();  // Загружаем заказы при загрузке страницы
+  </script>
+</body>
+</html>
