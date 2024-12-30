@@ -1,73 +1,202 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CraftShop Orders</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background-color: #f4f4f9;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 80%;
+      max-width: 800px;
+      margin: 20px auto;
+      background-color: white;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    th {
+      background-color: #4CAF50;
+      color: white;
+    }
+
+    button {
+      margin: 5px;
+      padding: 10px 20px;
+      font-size: 16px;
+      color: white;
+      background-color: #4CAF50;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    .action-buttons button {
+      margin: 0 5px;
+      padding: 5px 10px;
+      font-size: 14px;
+    }
+
+    .completed {
+      background-color: #d4edda;
+    }
+
+    .cancelled {
+      background-color: #f8d7da;
+    }
+  </style>
 </head>
 <body>
-  <h1>Добро пожаловать на страницу заказов!</h1>
-  
-  <table id="orders-table">
+  <h1>CraftShop Orders</h1>
+
+  <table>
     <thead>
       <tr>
         <th>ID</th>
-        <th>Заказчик</th>
-        <th>Товар</th>
-        <th>Цена</th>
-        <th>Телеграм</th>
+        <th>Name</th>
+        <th>Product</th>
+        <th>Price</th>
+        <th>Telegram</th>
+        <th>Actions</th>
       </tr>
     </thead>
-    <tbody>
-      <!-- Данные будут динамически добавляться сюда -->
+    <tbody id="orders-table">
+      <!-- Orders will be inserted here dynamically -->
     </tbody>
   </table>
 
-  <button id="download-button">Скачать все заказы</button>
+  <button id="download-btn">Download Orders</button>
 
   <script>
+    function saveToLocalStorage(orders) {
+      localStorage.setItem('orders', JSON.stringify(orders));
+    }
+
+    function getFromLocalStorage() {
+      return JSON.parse(localStorage.getItem('orders')) || [];
+    }
+
     async function fetchOrders() {
-      const response = await fetch('/.netlify/functions/fetchOrders');  // Запрос к серверной функции
-      const data = await response.json();
-      
-      const ordersTable = document.querySelector('#orders-table tbody');
-      data.result.forEach(order => {
+      try {
+        const response = await fetch('https://api.telegram.org/bot7711745813:AAHazLKxh9Z0OTMwwQGPxtlGYlVd7U0ZtCc/getUpdates');
+        const data = await response.json();
+        console.log('Fetched Data:', data);
+
+        const orders = await Promise.all(data.result.map(async (item) => {
+          const text = item.channel_post.text;
+          const lines = text.split('\n').map(line => line.trim().replace(/,$/, ''));
+          let price = lines.find(line => line.startsWith('Цена:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A';
+
+          return {
+            id: lines.find(line => line.startsWith('ID заказа:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
+            name: lines.find(line => line.startsWith('Заказчик:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
+            product: lines.find(line => line.startsWith('Товар:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
+            price: price,
+            telegram: lines.find(line => line.startsWith('Телеграм:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
+            status: 'pending',
+          };
+        }));
+
+        const savedOrders = getFromLocalStorage();
+        const mergedOrders = mergeOrders(savedOrders, orders);
+        saveToLocalStorage(mergedOrders);
+        renderOrders(mergedOrders);
+      } catch (error) {
+        console.error('Error fetching orders:', error);
+      }
+    }
+
+    function mergeOrders(savedOrders, fetchedOrders) {
+      const idSet = new Set(savedOrders.map(order => order.id));
+      const newOrders = fetchedOrders.filter(order => !idSet.has(order.id));
+      return [...savedOrders, ...newOrders];
+    }
+
+    function renderOrders(orders) {
+      const tableBody = document.getElementById('orders-table');
+      tableBody.innerHTML = '';
+      orders.forEach(order => {
         const row = document.createElement('tr');
+        row.className = order.status;
         row.innerHTML = `
-          <td>${order.channel_post.text.match(/ID заказа: ([\w-]+)/)[1]}</td>
-          <td>${order.channel_post.text.match(/Заказчик: ([\w\s,]+)/)[1]}</td>
-          <td>${order.channel_post.text.match(/Товар: ([\w\s\(\)]+)/)[1]}</td>
-          <td>${order.channel_post.text.match(/Цена: (\w+)/) ? order.channel_post.text.match(/Цена: (\w+)/)[1] : 'N/A'}</td>
-          <td>${order.channel_post.text.match(/Телеграм: ([\w]+)/)[1]}</td>
+          <td>${order.id}</td>
+          <td>${order.name}</td>
+          <td>${order.product}</td>
+          <td>${order.price}</td>
+          <td>${order.telegram}</td>
+          <td class="action-buttons">
+            <button onclick="markCompleted(this)">✔</button>
+            <button onclick="markCancelled(this)">✘</button>
+          </td>
         `;
-        ordersTable.appendChild(row);
+        tableBody.appendChild(row);
       });
     }
 
-    document.getElementById('download-button').addEventListener('click', () => {
-      const orders = document.querySelectorAll('#orders-table tbody tr');
-      const orderData = [];
-      
-      orders.forEach(row => {
-        const cells = row.querySelectorAll('td');
-        const order = {
-          id: cells[0].textContent,
-          customer: cells[1].textContent,
-          product: cells[2].textContent,
-          price: cells[3].textContent,
-          telegram: cells[4].textContent
-        };
-        orderData.push(order);
-      });
-      
-      const blob = new Blob([JSON.stringify(orderData, null, 2)], { type: 'application/json' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'orders.json';
-      link.click();
+    function updateOrderStatus(row, status) {
+      const id = row.children[0].textContent;
+      const orders = getFromLocalStorage();
+      const order = orders.find(order => order.id === id);
+      if (order) {
+        order.status = status;
+        saveToLocalStorage(orders);
+      }
+    }
+
+    function markCompleted(button) {
+      const row = button.closest('tr');
+      row.classList.remove('cancelled');
+      row.classList.add('completed');
+      updateOrderStatus(row, 'completed');
+      row.parentElement.appendChild(row);
+    }
+
+    function markCancelled(button) {
+      const row = button.closest('tr');
+      row.classList.remove('completed');
+      row.classList.add('cancelled');
+      updateOrderStatus(row, 'cancelled');
+      row.parentElement.appendChild(row);
+    }
+
+    document.getElementById('download-btn').addEventListener('click', () => {
+      const rows = Array.from(document.querySelectorAll('#orders-table tr'));
+      const csvContent = rows.map(row => {
+        return Array.from(row.children).slice(0, -1).map(cell => cell.textContent).join(',');
+      }).join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'orders.txt';
+      a.click();
     });
 
-    fetchOrders();  // Загружаем заказы при загрузке страницы
+    fetchOrders();
   </script>
 </body>
 </html>
