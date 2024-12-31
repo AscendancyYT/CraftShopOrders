@@ -59,6 +59,7 @@
       margin: 0 5px;
       padding: 5px 10px;
       font-size: 14px;
+      border-radius: 3px;
     }
 
     .completed {
@@ -67,6 +68,16 @@
 
     .cancelled {
       background-color: #f8d7da;
+    }
+
+    .cancel-button {
+      background-color: #dc3545;
+      color: white;
+      transition: background-color 0.3s ease;
+    }
+
+    .cancel-button:hover {
+      background-color: #a71d2a;
     }
   </style>
 </head>
@@ -81,8 +92,7 @@
         <th>Product</th>
         <th>Price</th>
         <th>Telegram</th>
-        <th>Actions</th>
-      </tr>
+        </tr>
     </thead>
     <tbody id="orders-table">
       <!-- Orders will be inserted here dynamically -->
@@ -90,8 +100,11 @@
   </table>
 
   <button id="download-btn">Download Orders</button>
+  <button id="download-logs-btn">Download Logs</button>
 
   <script>
+    let logs = [];
+
     function saveToLocalStorage(orders) {
       localStorage.setItem('orders', JSON.stringify(orders));
     }
@@ -105,35 +118,37 @@
         const response = await fetch('https://api.telegram.org/bot7711745813:AAHazLKxh9Z0OTMwwQGPxtlGYlVd7U0ZtCc/getUpdates');
         const data = await response.json();
         console.log('Fetched Data:', data);
+        logs.push(`[${new Date().toISOString()}] Fetched Data: ${JSON.stringify(data)}`);
 
-        const orders = await Promise.all(data.result.map(async (item) => {
-          const text = item.channel_post.text;
+        if (!data.result || !Array.isArray(data.result)) {
+          throw new Error('Invalid API response: No "result" array found.');
+        }
+
+        const orders = data.result.map(item => {
+          const text = item.channel_post?.text || '';
           const lines = text.split('\n').map(line => line.trim().replace(/,$/, ''));
-          let price = lines.find(line => line.startsWith('Цена:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A';
-
           return {
-            id: lines.find(line => line.startsWith('ID заказа:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
-            name: lines.find(line => line.startsWith('Заказчик:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
-            product: lines.find(line => line.startsWith('Товар:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
-            price: price,
-            telegram: lines.find(line => line.startsWith('Телеграм:'))?.split(': ')[1]?.replace(/,$/, '') || 'N/A',
-            status: 'pending',
+            id: lines.find(line => line.startsWith('ID заказа:'))?.split(': ')[1] || 'N/A',
+            name: lines.find(line => line.startsWith('Заказчик:'))?.split(': ')[1] || 'N/A',
+            product: lines.find(line => line.startsWith('Товар:'))?.split(': ')[1] || 'N/A',
+            price: lines.find(line => line.startsWith('Цена:'))?.split(': ')[1] || 'N/A',
+            telegram: lines.find(line => line.startsWith('Телеграм:'))?.split(': ')[1] || 'N/A',
+            status: 'pending', // Default status
           };
-        }));
+        });
 
         const savedOrders = getFromLocalStorage();
-        const mergedOrders = mergeOrders(savedOrders, orders);
+        const mergedOrders = orders.map(order => {
+          const existingOrder = savedOrders.find(o => o.id === order.id);
+          return existingOrder || order;
+        });
+
         saveToLocalStorage(mergedOrders);
         renderOrders(mergedOrders);
       } catch (error) {
         console.error('Error fetching orders:', error);
+        logs.push(`[${new Date().toISOString()}] Error: ${error.message}`);
       }
-    }
-
-    function mergeOrders(savedOrders, fetchedOrders) {
-      const idSet = new Set(savedOrders.map(order => order.id));
-      const newOrders = fetchedOrders.filter(order => !idSet.has(order.id));
-      return [...savedOrders, ...newOrders];
     }
 
     function renderOrders(orders) {
@@ -141,48 +156,67 @@
       tableBody.innerHTML = '';
       orders.forEach(order => {
         const row = document.createElement('tr');
-        row.className = order.status;
+        row.className = order.status === 'completed' ? 'completed' : order.status === 'cancelled' ? 'cancelled' : '';
         row.innerHTML = `
           <td>${order.id}</td>
           <td>${order.name}</td>
           <td>${order.product}</td>
           <td>${order.price}</td>
           <td>${order.telegram}</td>
-          <td class="action-buttons">
-            <button onclick="markCompleted(this)">✔</button>
-            <button onclick="markCancelled(this)">✘</button>
-          </td>
         `;
         tableBody.appendChild(row);
       });
     }
 
-    function updateOrderStatus(row, status) {
-      const id = row.children[0].textContent;
-      const orders = getFromLocalStorage();
-      const order = orders.find(order => order.id === id);
-      if (order) {
-        order.status = status;
-        saveToLocalStorage(orders);
-      }
-    }
-
     function markCompleted(button) {
       const row = button.closest('tr');
+      const orders = getFromLocalStorage();
+      const orderId = row.children[0].textContent;
+
+      const order = orders.find(o => o.id === orderId);
+      if (order) {
+        order.status = 'completed';
+        saveToLocalStorage(orders);
+        logs.push(`[${new Date().toISOString()}] Marked order as completed: ${orderId}`);
+      }
+
       row.classList.remove('cancelled');
       row.classList.add('completed');
-      updateOrderStatus(row, 'completed');
-      row.parentElement.appendChild(row);
+      moveRowToEnd(row);
     }
 
-    function markCancelled(button) {
+    function removeRow(button) {
       const row = button.closest('tr');
-      row.classList.remove('completed');
-      row.classList.add('cancelled');
-      updateOrderStatus(row, 'cancelled');
-      row.parentElement.appendChild(row);
+      const orders = getFromLocalStorage();
+      const orderId = row.children[0].textContent;
+
+      const updatedOrders = orders.filter(o => o.id !== orderId);
+      saveToLocalStorage(updatedOrders);
+      logs.push(`[${new Date().toISOString()}] Removed order: ${orderId}`);
+
+      row.remove();
     }
 
+    function moveRowToEnd(row) {
+      const tableBody = row.parentNode;
+      row.style.transition = 'transform 0.3s ease';
+      tableBody.appendChild(row);
+      setTimeout(() => {
+        row.style.transition = '';
+      }, 300);
+    }
+
+    // Logs download button
+    document.getElementById('download-logs-btn').addEventListener('click', () => {
+      const logContent = logs.join('\n');
+      const blob = new Blob([logContent], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'logs.txt';
+      a.click();
+    });
+
+    // Orders download button
     document.getElementById('download-btn').addEventListener('click', () => {
       const rows = Array.from(document.querySelectorAll('#orders-table tr'));
       const csvContent = rows.map(row => {
@@ -196,7 +230,15 @@
       a.click();
     });
 
-    fetchOrders();
+    // Initialize orders
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedOrders = getFromLocalStorage();
+      if (savedOrders.length > 0) {
+        renderOrders(savedOrders);
+      } else {
+        fetchOrders();
+      }
+    });
   </script>
 </body>
 </html>
