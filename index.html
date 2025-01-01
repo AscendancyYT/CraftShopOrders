@@ -15,12 +15,13 @@
         justify-content: center;
         min-height: 100vh;
         background-image: url("./background.jpg");
-        background-position: center;
         background-size: cover;
+        background-position: center;
       }
 
       h1 {
         margin-bottom: 20px;
+        color: #fff;
       }
 
       table {
@@ -29,7 +30,6 @@
         max-width: 800px;
         margin: 20px auto;
         background-color: white;
-        border-radius: 10px;
       }
 
       th,
@@ -52,11 +52,18 @@
         border: none;
         border-radius: 5px;
         cursor: pointer;
-        transition: all .2s linear;
+        transition: all 0.2s linear;
       }
 
       button:hover {
         background-color: darkmagenta;
+      }
+
+      .action-buttons button {
+        margin: 0 5px;
+        padding: 5px 10px;
+        font-size: 14px;
+        border-radius: 3px;
       }
 
       .completed {
@@ -76,51 +83,27 @@
       .cancel-button:hover {
         background-color: #a71d2a;
       }
-      .glass {
-        width: 75%;
-        height: 800px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-direction: column;
-        background: rgba(144, 19, 254, 0.25);
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        color: #fff;
-      }
-      
-      td{
-        width: 250px;
-        height: 50%;
-      }
-
     </style>
   </head>
   <body>
-    <div class="glass">
-      <h1>CraftShop Orders</h1>
+    <h1>CraftShop Orders</h1>
 
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Product</th>
-            <th>Price</th>
-            <th>Telegram</th>
-          </tr>
-        </thead>
-        <tbody id="orders-table">
-          <!-- Orders will be inserted here dynamically -->
-        </tbody>
-      </table>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Product</th>
+          <th>Price</th>
+          <th>Telegram</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="orders-table"></tbody>
+    </table>
 
-      <button id="download-btn">Download Orders</button>
-      <button id="download-logs-btn">Download Logs</button>
-    </div>
+    <button id="download-btn">Download Orders</button>
+    <button id="download-logs-btn">Download Logs</button>
 
     <script>
       let logs = [];
@@ -131,6 +114,14 @@
 
       function getFromLocalStorage() {
         return JSON.parse(localStorage.getItem("orders")) || [];
+      }
+
+      function saveRemovedOrders(removed) {
+        localStorage.setItem("removedOrders", JSON.stringify(removed));
+      }
+
+      function getRemovedOrders() {
+        return JSON.parse(localStorage.getItem("removedOrders")) || [];
       }
 
       async function fetchOrders() {
@@ -150,44 +141,36 @@
             throw new Error('Invalid API response: No "result" array found.');
           }
 
-          const orders = data.result.map((item) => {
-            const text = item.channel_post?.text || "";
-            const lines = text
-              .split("\n")
-              .map((line) => line.trim().replace(/,$/, ""));
-            return {
-              id:
-                lines
-                  .find((line) => line.startsWith("ID заказа:"))
-                  ?.split(": ")[1] || "N/A",
-              name:
-                lines
-                  .find((line) => line.startsWith("Заказчик:"))
-                  ?.split(": ")[1] || "N/A",
-              product:
-                lines
-                  .find((line) => line.startsWith("Товар:"))
-                  ?.split(": ")[1] || "N/A",
-              price:
-                lines
-                  .find((line) => line.startsWith("Цена:"))
-                  ?.split(": ")[1] || "N/A",
-              telegram:
-                lines
-                  .find((line) => line.startsWith("Телеграм:"))
-                  ?.split(": ")[1] || "N/A",
-              status: "pending", // Default status
-            };
-          });
+          const removedOrders = getRemovedOrders();
 
-          const savedOrders = getFromLocalStorage();
-          const mergedOrders = orders.map((order) => {
-            const existingOrder = savedOrders.find((o) => o.id === order.id);
-            return existingOrder || order;
-          });
+          const orders = data.result.map(item => {
+  const text = item.channel_post?.text || '';
+  if (!text.includes('ID заказа:')) {
+    console.warn('Skipped a message without valid order data:', text);
+    return null; // Skip non-order messages
+  }
+  const lines = text.split('\n').map(line => line.trim().replace(/,$/, ''));
+  return {
+    id: lines.find(line => line.startsWith('ID заказа:'))?.split(': ')[1] || 'N/A',
+    name: lines.find(line => line.startsWith('Заказчик:'))?.split(': ')[1] || 'N/A',
+    product: lines.find(line => line.startsWith('Товар:'))?.split(': ')[1] || 'N/A',
+    price: lines.find(line => line.startsWith('Цена:'))?.split(': ')[1] || 'N/A',
+    telegram: lines.find(line => line.startsWith('Телеграм:'))?.split(': ')[1] || 'N/A',
+  };
+}).filter(order => order !== null); // Remove skipped messages
 
-          saveToLocalStorage(mergedOrders);
-          renderOrders(mergedOrders);
+         
+
+          console.log("Parsed Orders:", orders);
+          console.log('Debug: Received result:', data.result);
+
+          logs.push(
+            `[${new Date().toISOString()}] Parsed Orders: ${JSON.stringify(
+              orders
+            )}`
+          );
+          renderOrders(orders);
+          saveToLocalStorage(orders);
         } catch (error) {
           console.error("Error fetching orders:", error);
           logs.push(`[${new Date().toISOString()}] Error: ${error.message}`);
@@ -199,76 +182,33 @@
         tableBody.innerHTML = "";
         orders.forEach((order) => {
           const row = document.createElement("tr");
-          row.className =
-            order.status === "completed"
-              ? "completed"
-              : order.status === "cancelled"
-              ? "cancelled"
-              : "";
           row.innerHTML = `
-          <td style="color:#000">${order.id}</td>
-          <td style="color:#000">${order.name}</td>
-          <td style="color:#000">${order.product}</td>
-          <td style="color:#000">${order.price}</td>
-          <td style="color:#000">${order.telegram}</td>
+          <td>${order.id}</td>
+          <td>${order.name}</td>
+          <td>${order.product}</td>
+          <td>${order.price}</td>
+          <td>${order.telegram}</td>
+          <td class="action-buttons">
+            <button class="cancel-button" onclick="removeRow(this, '${order.id}')">✘</button>
+          </td>
         `;
           tableBody.appendChild(row);
         });
       }
 
-      function markCompleted(button) {
+      function removeRow(button, orderId) {
         const row = button.closest("tr");
-        const orders = getFromLocalStorage();
-        const orderId = row.children[0].textContent;
-
-        const order = orders.find((o) => o.id === orderId);
-        if (order) {
-          order.status = "completed";
-          saveToLocalStorage(orders);
-          logs.push(
-            `[${new Date().toISOString()}] Marked order as completed: ${orderId}`
-          );
-        }
-
-        row.classList.remove("cancelled");
-        row.classList.add("completed");
-        moveRowToEnd(row);
-      }
-
-      function removeRow(button) {
-        const row = button.closest("tr");
-        const orders = getFromLocalStorage();
-        const orderId = row.children[0].textContent;
-
-        const updatedOrders = orders.filter((o) => o.id !== orderId);
-        saveToLocalStorage(updatedOrders);
-        logs.push(`[${new Date().toISOString()}] Removed order: ${orderId}`);
-
+        logs.push(
+          `[${new Date().toISOString()}] Removed order: ${
+            row.children[0].textContent
+          }`
+        );
+        const removedOrders = getRemovedOrders();
+        removedOrders.push(orderId);
+        saveRemovedOrders(removedOrders);
         row.remove();
       }
 
-      function moveRowToEnd(row) {
-        const tableBody = row.parentNode;
-        row.style.transition = "transform 0.3s ease";
-        tableBody.appendChild(row);
-        setTimeout(() => {
-          row.style.transition = "";
-        }, 300);
-      }
-
-      // Logs download button
-      document
-        .getElementById("download-logs-btn")
-        .addEventListener("click", () => {
-          const logContent = logs.join("\n");
-          const blob = new Blob([logContent], { type: "text/plain" });
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = "logs.txt";
-          a.click();
-        });
-
-      // Orders download button
       document.getElementById("download-btn").addEventListener("click", () => {
         const rows = Array.from(document.querySelectorAll("#orders-table tr"));
         const csvContent = rows
@@ -287,15 +227,18 @@
         a.click();
       });
 
-      // Initialize orders
-      document.addEventListener("DOMContentLoaded", () => {
-        const savedOrders = getFromLocalStorage();
-        if (savedOrders.length > 0) {
-          renderOrders(savedOrders);
-        } else {
-          fetchOrders();
-        }
-      });
+      document
+        .getElementById("download-logs-btn")
+        .addEventListener("click", () => {
+          const logContent = logs.join("\n");
+          const blob = new Blob([logContent], { type: "text/plain" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "logs.txt";
+          a.click();
+        });
+
+      fetchOrders();
     </script>
   </body>
 </html>
